@@ -1,2 +1,2 @@
 # pathing
-path generation system using quintic splines
+credit to rr for the quintic spline idea
