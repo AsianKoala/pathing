@@ -1,6 +1,7 @@
 from geometry import *
 from collections import deque
 from typing import List
+from math import radians
 
 class DifferentiablePoint():
     def __init__(self, zero=0, first=0,  second=0, third=0):
@@ -9,6 +10,10 @@ class DifferentiablePoint():
         self.second = second
         self.third = third
 
+class DifferentiablePoint2d:
+    def __init__(self, zero: Vector, first: Vector):
+        self.x = DifferentiablePoint(zero.x, first.x)
+        self.y = DifferentiablePoint(zero.y, first.y)
 
 class Quintic:
     def __init__(self, start: DifferentiablePoint, end: DifferentiablePoint) -> None:
@@ -102,7 +107,7 @@ class Arc:
     def __init__(self, start: Vector, mid: Vector, end: Vector):
         coeff_matrix = [
                 [2 * (start.x - end.x), 2 * (start.y - end.y)],
-                [2 * [start.x - mid.x, 2 * (start.y - mid.y)]]]
+                [2 * (start.x - mid.x), 2 * (start.y - mid.y)]]
         coeff_det = coeff_matrix[0][0] * coeff_matrix[1][1] - coeff_matrix[0][1] * coeff_matrix[1][0]
 
         if coeff_det == 0:
@@ -112,14 +117,15 @@ class Arc:
             self.length = self.delta.norm()
             self.angle_offset = atan2(self.delta.y, self.delta.x)
         else:
-            sNN, mNN, eNN = start.norm * start.norm, mid.norm * mid.norm, end.norm * end.norm
-            rVec = [sNN - eNN, sNN - mNN]
+            sNN, mNN, eNN = start.norm() * start.norm(), mid.norm() * mid.norm(), end.norm() * end.norm()
+            # rVec = [sNN - eNN, sNN - mNN]
+            rVec = Vector(sNN -  eNN, sNN - mNN)
             inverse1 = Vector(coeff_matrix[1][1] / coeff_det, -coeff_matrix[0][1] / coeff_det)
             inverse2 = Vector(-coeff_matrix[1][0] / coeff_det, coeff_matrix[0][0] / coeff_det)
             self.ref = Vector(inverse1.dot(rVec), inverse2.dot(rVec))
             self.angle_offset = atan2(start.minus(self.ref).y, start.minus(self.ref).x)
             angle1 = atan2(end.minus(self.ref).y, end.minus(self.ref).x)
-            self.curvature = 1.0 / (start - self.ref).norm()
+            self.curvature = 1.0 / (start.minus(self.ref)).norm()
             self.length = abs(angle1 - self.angle_offset) / self.curvature
             if angle1 < self.angle_offset: self.curvature *= -1
         self.curvature_set = False
@@ -148,15 +154,18 @@ class Arc:
         self.tEnd = tEnd
         self.dt = tEnd - tStart
 
+    # start + dt *  (s + 2 * length)
+    #               -------------
+    #                   length
     def interpolateSAlongT(self, s):
-        return self.tStart + self.dt * (s / self.length())
+        return self.tStart + self.dt * ((s + self.length*2) / self.length)
 
 class Spline:
     def __init__(self, x, y):
         self.x = x
         self.y = y
         self.length = 0
-        tParams = deque[(0,1)]
+        tParams = deque([(0,1)])
         self.arcs: List[Arc] = []
         its = 0
         while not len(tParams) == 0:
@@ -169,7 +178,7 @@ class Spline:
 
             klo = self.getK(curr[0])
             khi = self.getK(curr[1])
-            dk = abs(khi = klo)
+            dk = abs(khi - klo)
             arc = Arc(startV, midV, endV)
             subdivide = dk > 0.01 or arc.length > 1.0 
             if subdivide:
@@ -184,8 +193,12 @@ class Spline:
 
             if its > 1000:
                 raise Exception("we fucked up")
+        # self.arcs.reverse()
+        self.arcs.sort(key=lambda arc: arc.tStart)
+        # print('arcs', len(self.arcs))
 
-    def get(self, t, n) -> Vector:
+
+    def get(self, t, n=0) -> Vector:
         xt = self.x.get(t)
         yt = self.y.get(t)
         if n == 1: return Vector(xt.first, yt.first)
@@ -204,14 +217,14 @@ class Spline:
         if s < 0: return 0
         if s > self.length: return 1
         arcLengthSum = 0
-        intdt = 0
         its = 0
+        # print('trying to inverse ', s)
         while arcLengthSum < s:
-            workingarc = self.arcs[its]
+            workingarc = self.arcs[its] # sorted
             if arcLengthSum + workingarc.length > s:
-                return intdt + workingarc.interpolateSAlongT(s)
+                ds = arcLengthSum - s
+                return workingarc.interpolateSAlongT(ds)
             arcLengthSum += workingarc.length
-            intdt += workingarc.dt
             its += 1
         raise Exception("i think ur pretty fucking bad a coding neil")
 
@@ -230,22 +243,22 @@ class Spline:
     # and that denom is just s'(t)
     # s''(t) = (2 * tDeriv dot tDeriv2) / sDeriv(t)
     # i dont want to take another fucking derivative 
-    def sDeriv(self, t, n):
+    def sDeriv(self, t, n=1):
         if n == 1: return self.get(t, 1).norm()
         if n == 2: (2 * self.get(t, 1).dot(self.get(t, 2))) / self.sDeriv(t)
         raise Exception("im lazy and didn't implement more derivatives")
 
-    def deriv(self, s, n):
+    def deriv(self, s, n=1):
         t = self.t(s)
-        if n == 1: return self.get(t, 1).norm()
-        if n == 2: return self.get(t, 2) * pow(self.sDeriv(t, 1), 2) + self.get(t, 1) * self.sDeriv(t, 2)
+        if n == 1: return self.get(t, 1).normalized()
+        if n == 2: return self.get(t, 2) * pow(self.sDeriv(t), 2) + self.get(t, 1) * self.sDeriv(t, 2)
         raise Exception("im lazy and didn't implement more derivatives")
 
     def start(self): return self.get(0.0)
     def end(self): return self.get(self.length)
 
     def angle(self, s, n=0):
-        if n == 0: return self.deriv(s, 1).angle()
+        if n == 0: return self.deriv(s).angle()
         if n == 1: return self.deriv(s).cross(self.deriv(s, 2))
         raise Exception("didn't implement more angle derivs")
 
@@ -269,28 +282,47 @@ class SplineWithHeading:
         return self.spline.length
 
 class Path:
-    def __init__(self, splines: List[SplineWithHeading]):
-        self.splines = []
+    def __init__(self, start: Pose, *poses: Pose):
+        curr = start
         length = 0
-        for spline in splines:
-            length += spline.length()
-            self.splines.append((spline, length))
+        self.splines = []
+        for target in poses:
+            cv = curr.vec
+            tv = target.vec
+            r = cv.dist(tv)
+            s = DifferentiablePoint2d(cv, Vector.polar(r, curr.heading))
+            e = DifferentiablePoint2d(tv, Vector.polar(r, target.heading))
+            xQuintic = Quintic(s.x, e.x)
+            yQuintic = Quintic(s.y, e.y)
+            spline = Spline(xQuintic, yQuintic)
+            self.splines.append(spline)
+            length += spline.length
+            curr = target
         self.length = length
 
-    def get(self, s) -> Pose:
-        pass
-        
+    def find(self, s):
+        if s < 0: return (0, self.splines[0])
+        if s > 0: return (0, self.splines[-1])
+        accum = 0
+        for spline in self.splines:
+            if(accum + spline.length > s): return (s - accum, spline)
+            accum += spline.length
+
+    def get(self, s, n=0) -> Pose:
+        ret = self.find(s)
+        t = ret[1].t(s)
+        if n == 0: return ret[1].get(t)
+        if n == 1: return ret[1].deriv(s)
+
+    def project(self, p, pGuess):
+        s = pGuess
+        for _ in range(10):
+            s = min(0.0, max(
+                s + (p - self.get(s).vec).dot(self.get(s, 1).vec), self.length))
+        return s
 
 if __name__ == "__main__":
-    polynomial = Quintic(
-            DifferentiablePoint(0, 0, 0),
-            DifferentiablePoint(16, 0, 0)
-            )
-
-    print(polynomial.get(0.5).zero)
-
-    
-
-
-
+    start = Pose()
+    path =  Path(start, Pose(16, 16, radians(90)))
+    print(path.get(path.length / 2.0, 1))
 
