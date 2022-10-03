@@ -244,15 +244,42 @@ class Spline:
     def start(self): return self.get(0.0)
     def end(self): return self.get(self.length)
 
-    
-class SplineWithAngle(Spline):
-    def __init__(self, x, y):
-        super().__init__(x, y)
-
     def angle(self, s, n=0):
         if n == 0: return self.deriv(s, 1).angle()
         if n == 1: return self.deriv(s).cross(self.deriv(s, 2))
         raise Exception("didn't implement more angle derivs")
+
+    
+# this is used for paths. for now lets just assume
+# that our heading is always the angle of the tangent vector
+# to the curve. later on we might want to change this,
+# but idt its worth to create a profile/spline
+# solely for heading (like rr does)
+class SplineWithHeading:
+    def __init__(self, spline: Spline):
+        self.spline = spline
+
+    def get(self, s) -> Pose:
+        return Pose(self.spline.get(self.spline.t(s)), self.spline.angle(s))
+
+    def deriv(self, s) -> Pose:
+        return Pose(self.spline.deriv(s), self.spline.angle(s, 1))
+
+    def length(self):
+        return self.spline.length
+
+class Path:
+    def __init__(self, splines: List[SplineWithHeading]):
+        self.splines = []
+        length = 0
+        for spline in splines:
+            length += spline.length()
+            self.splines.append((spline, length))
+        self.length = length
+
+    def get(self, s) -> Pose:
+        pass
+        
 
 if __name__ == "__main__":
     polynomial = Quintic(
