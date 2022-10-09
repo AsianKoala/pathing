@@ -15,7 +15,7 @@ class Vector:
         self.y = float(y)
 
     @classmethod
-    def polar(cls, r, theta): return Vector(float(r * np.cos(theta)), float(r * np.sin(theta)))
+    def fromPolar(cls, r, theta): return Vector(float(r * np.cos(theta)), float(r * np.sin(theta)))
 
     def angle(self): return float(atan2(self.y, self.x))
 

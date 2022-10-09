@@ -2,13 +2,13 @@ from geometry import *
 from collections import deque
 from typing import List
 from math import radians
+import scipy.linalg as la
 
 class DifferentiablePoint():
-    def __init__(self, zero=0, first=0,  second=0, third=0):
+    def __init__(self, zero=0, first=0,  second=0):
         self.first = first
         self.zero = zero
         self.second = second
-        self.third = third
 
 class DifferentiablePoint2d:
     def __init__(self, zero: Vector, first: Vector):
@@ -19,17 +19,26 @@ class Quintic:
     def __init__(self, start: DifferentiablePoint, end: DifferentiablePoint) -> None:
         self.end = end
         self.start = start
-        coeffs = [0]*6
-        coeffs[5] = start.zero
-        coeffs[4] = start.first
-        coeffs[3] = start.second / 2.0
-        coeffs[2] = -(20 * start.zero + 12 * start.first + 3 * start.second - 
-                20 * end.zero + 8 * end.first - end.second) / 2.0
-        coeffs[1] = (30 * start.zero + 16 * start.first + 3 * start.second
-                - 30 * end.zero + 14 * end.first - 2 * end.second) / 2.0
-        coeffs[0] = -(12 * start.zero + 6 * start.first + start.second
-                - 12 * end.zero + 6 * end.first - end.second) / 2.0
-        self.coeffs = coeffs
+        COEFF_MATRIX = np.array([
+            [0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+            [0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 2.0, 0.0, 0.0],
+            [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            [5.0, 4.0, 3.0, 2.0, 1.0, 0.0],
+            [20.0, 12.0, 6.0, 2.0, 0.0, 0.0]
+        ])
+
+        target = np.array([
+            [start.zero],
+            [start.first],
+            [0.0],
+            [end.zero],
+            [end.first],
+            [0.0]
+        ])
+
+        solved = la.solve(COEFF_MATRIX, target)
+        self.coeffs = [float(x) for x in solved]
 
     def get(self, t: float) -> DifferentiablePoint:
         coeffs = self.coeffs
@@ -41,67 +50,6 @@ class Quintic:
     def __str__(self): 
         return "{}t^5 + {}t^4 + {}t^3 + {}t^2 + {}t + {}".format(round(self.coeffs[0]), round(self.coeffs[1]), 
             round(self.coeffs[2]), round(self.coeffs[3]), round(self.coeffs[4]), round(self.coeffs[5]))
-
-# To actually create paths, we can't have splines parametrized on [0,1] with t,
-# instead splines have to be parametrized according to arc length s.
-# This problem is obvious when combining splines, cause t is completely
-# arbitrary in different parts of a path (e.g.) for the first spline,
-# t=1 might correspond to 10 inches of arc length, while t=1 at the
-# another spline segment might correspond to 20 inches.
-# Parametrizing is pretty simple itself (second week of multi var calc)
-# 1. s(t) = int 0->t |r'(u)| du
-# 2. t(s) = inverse function of s(t)
-# 3. plug t(s) into r(t) (our spline)
-# 4. r(t(s)) now is our give parametrized by arc length
-# from here on out r((t(s)) will just be referred to as r(s) since its already reparamed
-# Ryan (rbrott) talks about this in section 5 of his Quintic Splines for FTC paper
-# r(s) obviously has different derivatives now, but they are fairly simple to find
-# by just chain ruling stuff
-# d/ds r(s) = 
-# = d/ds (r(t(s)))
-# = r'(t(s)) * t'(s)
-# r'(t(s)) is just r'(t)
-# = r'(t) * t'(s)
-# t(s) is a pain to compute analytically, but since its an inverse to s(t),
-# t'(s) = 1 / s'(t)
-# so d/ds r(s) = r'(t) * (1 / s'(t))
-# s'(t) = d/dt int 0->t |r'(u)| du
-# = d/dt (|R'(t)| - |R'(0)|)
-# = |r'(t)|
-# so d/dt r(s) = r'(t) * (1 / |r'(t)|)
-# this is cool and all, but we need a way to reparametrize from s->t still
-# see https://github.com/GrappleRobotics/Pathfinder/blob/master/Pathfinder/src/include/grpl/pf/path/arc_parameterizer.h
-#
-# this arc class is used to reparametrize, also pulled from above link ^
-# template <typename output_iterator_t>
-# size_t parameterize(spline<2> &spline, output_iterator_t &&curve_begin, const size_t max_curve_count,
-#                     double t_lo = 0, double t_hi = 1) {
-#   _has_overrun = false;
-#   if (max_curve_count <= 0) {
-#     _has_overrun = true;
-#     return 0;
-#   }
-#
-#   double t_mid = (t_hi + t_lo) / 2.0;
-#   double k_lo  = spline.curvature(t_lo);
-#   double k_hi  = spline.curvature(t_hi);
-#
-#   augmented_arc2d arc{spline.position(t_lo), spline.position(t_mid), spline.position(t_hi), k_lo, k_hi};
-#
-#   bool subdivide = (fabs(k_hi - k_lo) > _max_delta_curvature) || (arc.length() > _max_arc_length);
-#
-#   if (subdivide) {
-#     output_iterator_t head = curve_begin;
-#
-#     size_t len = parameterize(spline, head, max_curve_count, t_lo, t_mid);
-#     len += parameterize(spline, head, max_curve_count - len, t_mid, t_hi);
-#     return len;
-#   } else {
-#     arc.set_curvature(k_lo, k_hi);
-#     *(curve_begin++) = arc;
-#     return 1;
-#   }
-# }
 
 class Arc:
     def __init__(self, start: Vector, mid: Vector, end: Vector):
@@ -145,7 +93,7 @@ class Arc:
 
     def get(self, s) -> Vector:
         if self.curvature != 0:
-            return self.ref + Vector.polar(1.0 / self.curvature, self.angle_offset + (s * self.curvature))
+            return self.ref.plus(Vector.fromPolar(1.0 / self.curvature, self.angle_offset + (s * self.curvature)))
         else: 
             return self.linearlyInterpolate(s)
 
@@ -158,171 +106,120 @@ class Arc:
     #               -------------
     #                   length
     def interpolateSAlongT(self, s):
-        return self.tStart + self.dt * ((s + self.length*2) / self.length)
+        return self.tStart + self.dt * (s / self.length)
 
 class Spline:
-    def __init__(self, x, y):
+    def __init__(self, x: Quintic, y: Quintic) -> None:
         self.x = x
         self.y = y
-        self.length = 0
-        tParams = deque([(0,1)])
-        self.arcs: List[Arc] = []
+        tPairs = deque()
+        tPairs.append((0.0, 1.0))
         its = 0
-        while not len(tParams) == 0:
-            curr = tParams.popleft()
-            midT = (curr[0] + curr[1]) / 2
+        self.arcs = []
+        self.length = 0.0
+        while len(tPairs) != 0:
+            curr = tPairs.popleft()
+            midT = (curr[0] + curr[1]) / 2.0
 
-            startV = self.get(curr[0])
-            endV = self.get(curr[1])
-            midV = self.get(midT)
+            startV = self.rt(curr[0])
+            endV = self.rt(curr[1])
+            midV = self.rt(midT)
 
-            klo = self.getK(curr[0])
-            khi = self.getK(curr[1])
-            dk = abs(khi - klo)
+            startK = self.rt(curr[0], 2).cross(self.rt(curr[1], 1)) / pow(self.rt(curr[0], 1).norm(), 3)
+            endK = self.rt(curr[1], 2).cross(self.rt(curr[1], 1)) / pow(self.rt(curr[1], 1).norm(), 3)
             arc = Arc(startV, midV, endV)
-            subdivide = dk > 0.01 or arc.length > 1.0 
+            
+            subdivide = abs(endK - startK) > 0.01 or arc.length > 0.25
             if subdivide:
-                tParams.append((midT, curr[1]))
-                tParams.append((curr[0], midT))
+                tPairs.append((midT, curr[1]))
+                tPairs.append((curr[0], midT))
             else:
-                arc.set_curvature(klo, khi)
+                arc.set_curvature(startK, endK)
                 arc.set_t(curr[0], curr[1])
                 self.arcs.append(arc)
                 self.length += arc.length
-                its+=1
+                its += 1
 
-            if its > 1000:
-                raise Exception("we fucked up")
-        # self.arcs.reverse()
         self.arcs.sort(key=lambda arc: arc.tStart)
-        # print('arcs', len(self.arcs))
 
+    def invArc(self, s):
+        if s <= 0.0: return 0.0
+        if s >= self.length: return 1.0
+        acc = 0.0
+        for arc in self.arcs:
+            if acc + arc.length > s:
+                return arc.interpolateSAlongT(acc - s)
+            acc += arc.length
 
-    def get(self, t, n=0) -> Vector:
+    def rt(self, t, n = 0) -> Vector:
         xt = self.x.get(t)
         yt = self.y.get(t)
         if n == 1: return Vector(xt.first, yt.first)
         elif n == 2: return Vector(xt.second, yt.second)
-        elif n == 3: return Vector(xt.third, yt.third)
         else: return Vector(xt.zero, yt.zero)
 
-    # from multi: k = (a x v) / |v|^3
-    def getK(self, t) -> float: return self.get(t, 2).cross(self.get(t, 1)) / pow(self.get(t, 1).norm(), 3)
+    def dsdt(self, t, n = 1):
+        if n == 1: return self.rt(t, 1).norm()
+        elif n == 2: return (2 * self.rt(t, 1).dot(self.rt(t, 2))) / self.dsdt(t)
 
-    # now that we have our spline parametrized into arcs,
-    # we can find the corresponding t with s by iterating across
-    # our arc array and finding what iteration it is at
-    # ok this is a shitty name but like... is it really?
-    def t(self, s): 
-        if s < 0: return 0
-        if s > self.length: return 1
-        arcLengthSum = 0
-        its = 0
-        # print('trying to inverse ', s)
-        while arcLengthSum < s:
-            workingarc = self.arcs[its] # sorted
-            if arcLengthSum + workingarc.length > s:
-                ds = arcLengthSum - s
-                return workingarc.interpolateSAlongT(ds)
-            arcLengthSum += workingarc.length
-            its += 1
-        raise Exception("i think ur pretty fucking bad a coding neil")
+    def dtds(self, t, n = 1):
+        if n == 1: return 1.0 / self.dsdt(t)
+        elif n == 2: return -self.dsdt(t, 2) / pow(self.dsdt(t), 3)
 
-    # s'(t) = d/dt int 0->t |r'(u)| du
-    # = |r'(t)|
-    # expand |r'(t)|
-    # s'(t) = |r'(t)|
-    # = norm(x'(t), y'(t))
-    # = sqrt(x'(t)^2 + y'(t)^2)
-    # take another deriv
-    # s''(t) = (1 / sqrt(x'(t)^2 + y'(t)^2)) * (2 * x'(t) * x''(t) + 2 * y'(t) * y''(t))
-    # ok lets try to simplify that xdddd
-    # 2 * x'(t) * x''(t) + 2 * y'(t) * y''(t) can factor 2 out
-    # = 2 * (x'(t) * x''(t) + y'(t) * y''(t)) last part of this is just tDeriv dot tDeriv2
-    # = 2 * tDeriv dot tDeriv2
-    # and that denom is just s'(t)
-    # s''(t) = (2 * tDeriv dot tDeriv2) / sDeriv(t)
-    # i dont want to take another fucking derivative 
-    def sDeriv(self, t, n=1):
-        if n == 1: return self.get(t, 1).norm()
-        if n == 2: (2 * self.get(t, 1).dot(self.get(t, 2))) / self.sDeriv(t)
-        raise Exception("im lazy and didn't implement more derivatives")
+    def rs(self, s, n = 0) -> Vector:
+        t = self.invArc(s)
+        if n == 0: return self.rt(t)
+        elif n == 1: return self.rt(t, 1).normalized()
+        elif n == 2: return self.rt(t, 2) * pow(self.dtds(t), 2) + self.rt(t, 1) * self.dtds(t, 2)
 
-    def deriv(self, s, n=1):
-        t = self.t(s)
-        if n == 1: return self.get(t, 1).normalized()
-        if n == 2: return self.get(t, 2) * pow(self.sDeriv(t), 2) + self.get(t, 1) * self.sDeriv(t, 2)
-        raise Exception("im lazy and didn't implement more derivatives")
-
-    def start(self): return self.get(0.0)
-    def end(self): return self.get(self.length)
-
-    def angle(self, s, n=0):
-        if n == 0: return self.deriv(s).angle()
-        if n == 1: return self.deriv(s).cross(self.deriv(s, 2))
-        raise Exception("didn't implement more angle derivs")
-
-    
-# this is used for paths. for now lets just assume
-# that our heading is always the angle of the tangent vector
-# to the curve. later on we might want to change this,
-# but idt its worth to create a profile/spline
-# solely for heading (like rr does)
-class SplineWithHeading:
-    def __init__(self, spline: Spline):
-        self.spline = spline
-
-    def get(self, s) -> Pose:
-        return Pose(self.spline.get(self.spline.t(s)), self.spline.angle(s))
-
-    def deriv(self, s) -> Pose:
-        return Pose(self.spline.deriv(s), self.spline.angle(s, 1))
-
-    def length(self):
-        return self.spline.length
+    def get(self, s, n = 0) -> Pose:
+        if n == 0: 
+            v = self.rs(s)
+            return Pose(v.x, v.y, self.rs(s, 1).angle())
+        elif n == 1: 
+            v = self.rs(s, 1)
+            return Pose(v.x, v.y, self.rs(s, 1).cross(self.rs(s, 2)))
+        elif n == 2: 
+            v = self.rs(s, 2)
+            return Pose(v.x, v.y, 0.0)
 
 class Path:
-    def __init__(self, start: Pose, *poses: Pose):
-        curr = start
-        length = 0
-        self.splines = []
-        for target in poses:
+    def __init__(self, *poses: Pose) -> None:
+        curr = poses[0]
+        self.curve_segments = []
+        self.length = 0.0
+        for target in poses[1:]:
             cv = curr.vec
             tv = target.vec
             r = cv.dist(tv)
-            s = DifferentiablePoint2d(cv, Vector.polar(r, curr.heading))
-            e = DifferentiablePoint2d(tv, Vector.polar(r, target.heading))
-            xQuintic = Quintic(s.x, e.x)
-            yQuintic = Quintic(s.y, e.y)
-            spline = Spline(xQuintic, yQuintic)
-            self.splines.append(spline)
-            length += spline.length
+            s = DifferentiablePoint2d(cv, Vector.fromPolar(r, curr.heading))
+            e = DifferentiablePoint2d(tv, Vector.fromPolar(r, target.heading))
+            spline = Spline(Quintic(s.x, e.x), Quintic(s.y, e.y))
+            self.curve_segments.append(spline)
+            self.length += spline.length
             curr = target
-        self.length = length
 
-    def find(self, s):
-        if s < 0: return (0, self.splines[0])
-        if s > 0: return (0, self.splines[-1])
-        accum = 0
-        for spline in self.splines:
-            if(accum + spline.length > s): return (s - accum, spline)
-            accum += spline.length
+    def get(self, s, n = 0) -> Pose:
+        if s <= 0.0: return self.curve_segments[0].get(0.0, n)
+        if s >= self.length: return self.curve_segments[-1].get(self.curve_segments[-1].size, n)
+        acc = 0.0
+        for spline in self.curve_segments:
+            if acc + spline.length > s: return spline.get(s - acc, n)
+            acc += spline.length
 
-    def get(self, s, n=0) -> Pose:
-        ret = self.find(s)
-        t = ret[1].t(s)
-        if n == 0: return ret[1].get(t)
-        if n == 1: return ret[1].deriv(s)
+    def clamp(self, x, a, b):
+        if x < a: return a
+        if x > b: return b
+        return x
 
-    def project(self, p, pGuess):
-        s = pGuess
+    def project(self, p: Vector, pGuess):
+        acc = pGuess
         for _ in range(10):
-            s = min(0.0, max(
-                s + (p - self.get(s).vec).dot(self.get(s, 1).vec), self.length))
-        return s
+            acc = self.clamp(acc + (p - self.get(acc).vec).dot(self.get(acc, 1).vec), 0.0, self.length)
+        return acc
 
 if __name__ == "__main__":
     start = Pose()
-    path =  Path(start, Pose(16, 16, radians(90)))
-    print(path.get(path.length / 2.0, 1))
+    path =  Path(start, Pose(20, 20, radians(90)))
+    print(path.get(path.length / 2.0).vec)
 
